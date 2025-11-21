@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Post Food - FoodBridge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="lavender-bg">
+
+<section class="donor-page">
+  <div class="donor-layout">
+    <div class="post-box">
+      <p class="login-pill">Donor alert center</p>
+      <h2>Create a fresh food alert</h2>
+      <p class="section-subtitle">Complete the lavender form below and receivers get notified instantly.</p>
+
+      <label class="field-label" for="donorNameInput">Donor name</label>
+      <input type="text" id="donorNameInput" placeholder="Ex: Priya Sundar">
+
+      <label class="field-label" for="donorEmailInput">Donor email</label>
+      <input type="email" id="donorEmailInput" placeholder="name@mail.com">
+
+      <label class="field-label">Select foods (you can select multiple)</label>
+      <div id="selectedFoodsDisplay" class="selected-foods-display"></div>
+
+      <div class="gallery">
+        <div class="food-item" onclick="toggleFood('Veg Biriyani', 'veg biriyani copy.jpg', this)">
+          <img src="veg biriyani copy.jpg" alt="Veg biriyani">
+          <span class="food-checkbox">✓</span>
+        </div>
+        <div class="food-item" onclick="toggleFood('Idly & Sambar', 'idly and sambar.jpg', this)">
+          <img src="idly and sambar.jpg" alt="Idly">
+          <span class="food-checkbox">✓</span>
+        </div>
+        <div class="food-item" onclick="toggleFood('Curd Rice', 'curd rice.jpg', this)">
+          <img src="curd rice.jpg" alt="Curd rice">
+          <span class="food-checkbox">✓</span>
+        </div>
+        <div class="food-item" onclick="toggleFood('Poori Masala', 'poori masala.jpg', this)">
+          <img src="poori masala.jpg" alt="Poori">
+          <span class="food-checkbox">✓</span>
+        </div>
+        <div class="food-item" onclick="toggleFood('Lemon Rice', 'lemon rice.jpg', this)">
+          <img src="lemon rice.jpg" alt="Lemon rice">
+          <span class="food-checkbox">✓</span>
+        </div>
+        <div class="food-item" onclick="toggleFood('Paneer Butter Masala', 'paneer butter masala.jpg', this)">
+          <img src="paneer butter masala.jpg" alt="Paneer">
+          <span class="food-checkbox">✓</span>
+        </div>
+      </div>
+
+      <label class="field-label" for="foodImage">Attach additional food photos (optional)</label>
+      <input type="file" id="foodImage" accept="image/*" multiple>
+
+      <div class="image-preview" id="imagePreview">
+        <span>No additional images selected</span>
+      </div>
+
+      <label class="field-label" for="qty">Quantity (packs or servings)</label>
+      <input type="text" id="qty" placeholder="Ex: 12 family packs">
+
+      <label class="field-label" for="expire">Best before</label>
+      <input type="datetime-local" id="expire">
+
+      <label class="field-label" for="location">Pickup location</label>
+      <textarea id="location" placeholder="Apartment / street or use current location"></textarea>
+      <button class="ghost-btn" type="button" onclick="getLocation()">Use my current location</button>
+
+      <button class="post-btn" id="postBtn" onclick="postFood()">Send alert</button>
+    </div>
+
+    <div class="donor-summary">
+      <h3>Live preview</h3>
+      <div class="card" id="previewCard">
+        <div id="previewImagesContainer" class="preview-images-container"></div>
+        <div class="placeholder-img">Select foods from gallery</div>
+        <h4 id="previewTitle">Selected foods will appear here</h4>
+        <p id="previewQty">Quantity: –</p>
+        <p id="previewExpire">Expires: –</p>
+        <p id="previewLocation">Location: –</p>
+      </div>
+      <ul class="donor-tips">
+        <li>OTP verification auto-generated for every alert.</li>
+        <li>Share the OTP code with the receiver on pickup.</li>
+        <li>Lavender notifications appear instantly for receivers.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="modal hidden" id="successModal">
+  <div class="modal-card">
+    <h3>Alert sent successfully!</h3>
+    <p>Your verification code to share with the receiver:</p>
+    <div class="otp-chip" id="otpDisplay">— — — —</div>
+    <p class="modal-note">Your post is now live and visible to all receivers across all devices. They will see it automatically within 5 seconds.</p>
+    <div class="modal-actions">
+      <button class="ghost-btn" onclick="closeModal()">Create another alert</button>
+      <button class="post-btn" onclick="viewReceiver()">View receiver board</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_URL = "/api/posts";
+let selectedFoods = []; // Array to store selected foods: [{name, image}]
+let additionalImages = []; // Array for additional uploaded images
+
+const donorNameInput = document.getElementById("donorNameInput");
+const donorEmailInput = document.getElementById("donorEmailInput");
+donorNameInput.value = sessionStorage.getItem("donorName") || "";
+donorEmailInput.value = sessionStorage.getItem("donorEmail") || "";
+
+document.getElementById("foodImage").addEventListener("change", handleFileUpload);
+
+function toggleFood(name, imageSrc, element) {
+  const index = selectedFoods.findIndex(f => f.name === name);
+  
+  if (index > -1) {
+    // Deselect
+    selectedFoods.splice(index, 1);
+    element.classList.remove("selected");
+  } else {
+    // Select
+    selectedFoods.push({ name, image: imageSrc });
+    element.classList.add("selected");
+  }
+  
+  updateSelectedFoodsDisplay();
+  updatePreview();
+}
+
+function updateSelectedFoodsDisplay() {
+  const display = document.getElementById("selectedFoodsDisplay");
+  if (selectedFoods.length === 0) {
+    display.innerHTML = '<span style="color: #999;">No foods selected</span>';
+  } else {
+    display.innerHTML = selectedFoods.map(f => 
+      `<span class="food-tag">${f.name}</span>`
+    ).join("");
+  }
+}
+
+function handleFileUpload(event) {
+  const files = Array.from(event.target.files);
+  if (files.length === 0) {
+    additionalImages = [];
+    updatePreview();
+    return;
+  }
+  
+  additionalImages = [];
+  const preview = document.getElementById("imagePreview");
+  preview.innerHTML = `<span>Loading ${files.length} image(s)...</span>`;
+  
+  let loaded = 0;
+  files.forEach((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      additionalImages.push(reader.result);
+      loaded++;
+      if (loaded === files.length) {
+        preview.innerHTML = `<span>${files.length} additional image(s) selected</span>`;
+        updatePreview();
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function setPreviewImages() {
+  const container = document.getElementById("previewImagesContainer");
+  const placeholder = document.querySelector(".placeholder-img");
+  
+  const allImages = [
+    ...selectedFoods.map(f => f.image),
+    ...additionalImages
+  ];
+  
+  if (allImages.length === 0) {
+    container.innerHTML = "";
+    placeholder.style.display = "flex";
+  } else {
+    container.innerHTML = allImages.map(src => 
+      `<img src="${src}" alt="Preview" class="preview-thumb">`
+    ).join("");
+    placeholder.style.display = "none";
+  }
+}
+
+function getLocation() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(showPosition, showError);
+  } else {
+    alert("Your browser does not support Geolocation.");
+  }
+}
+
+function showPosition(position) {
+  const lat = position.coords.latitude.toFixed(4);
+  const lng = position.coords.longitude.toFixed(4);
+  const value = `Latitude: ${lat}, Longitude: ${lng}`;
+  document.getElementById("location").value = value;
+  updatePreview();
+}
+
+function showError() {
+  alert("Location access denied. Please type your pickup point.");
+}
+
+function updatePreview() {
+  // Update title
+  const titleEl = document.getElementById("previewTitle");
+  if (selectedFoods.length === 0) {
+    titleEl.innerText = "Selected foods will appear here";
+  } else if (selectedFoods.length === 1) {
+    titleEl.innerText = selectedFoods[0].name;
+  } else {
+    titleEl.innerText = `${selectedFoods.length} foods selected`;
+  }
+  
+  // Update images
+  setPreviewImages();
+  
+  // Update other fields
+  const qty = document.getElementById("qty").value.trim();
+  const expire = document.getElementById("expire").value.trim();
+  const location = document.getElementById("location").value.trim();
+  
+  document.getElementById("previewQty").innerText = `Quantity: ${qty || "–"}`;
+  document.getElementById("previewExpire").innerText = `Expires: ${expire || "–"}`;
+  document.getElementById("previewLocation").innerText = `Location: ${location || "–"}`;
+}
+
+["qty", "expire", "location"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", () => {
+    updatePreview();
+  });
+});
+
+// Initialize preview on page load
+updateSelectedFoodsDisplay();
+updatePreview();
+
+async function postFood() {
+  const donorName = donorNameInput.value.trim();
+  const donorEmail = donorEmailInput.value.trim();
+  const qty = document.getElementById("qty").value.trim();
+  const time = document.getElementById("expire").value.trim();
+  const location = document.getElementById("location").value.trim();
+  const button = document.getElementById("postBtn");
+
+  if (!donorName || !donorEmail || selectedFoods.length === 0 || !qty || !time || !location) {
+    alert("Please fill out every field and select at least one food to send an alert.");
+    return;
+  }
+
+  // Check if page is accessed via file:// protocol
+  if (window.location.protocol === "file:") {
+    alert("Please access this page through the server at http://localhost:4000/donor_post.html\n\nThe server must be running. Open terminal and run: npm start");
+    return;
+  }
+
+  try {
+    button.disabled = true;
+    button.innerText = "Sending alert...";
+
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache"
+      },
+      body: JSON.stringify({
+        donorName,
+        donorEmail,
+        foods: selectedFoods.map(f => ({
+          name: f.name,
+          image: f.image
+        })),
+        qty,
+        expire: time,
+        location,
+        additionalImages: additionalImages
+      })
+    });
+
+    if (!response.ok) {
+      let errorMessage = "Server rejected the post";
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+        // If response is not JSON, use status text
+        errorMessage = response.statusText || errorMessage;
+      }
+      alert(`Error: ${errorMessage}\n\nStatus: ${response.status}`);
+      return;
+    }
+
+    const result = await response.json();
+    sessionStorage.setItem("donorName", donorName);
+    sessionStorage.setItem("donorEmail", donorEmail);
+    document.getElementById("otpDisplay").innerText = result.otp;
+    
+    // Reset form after successful post
+    selectedFoods = [];
+    additionalImages = [];
+    document.getElementById("qty").value = "";
+    document.getElementById("expire").value = "";
+    document.getElementById("location").value = "";
+    document.getElementById("foodImage").value = "";
+    updateSelectedFoodsDisplay();
+    updatePreview();
+    
+    document.getElementById("successModal").classList.remove("hidden");
+  } catch (err) {
+    console.error("Post error:", err);
+    const errorMsg = err.message || err.toString();
+    if (errorMsg.includes("fetch") || errorMsg.includes("Failed to fetch") || errorMsg.includes("NetworkError") || errorMsg.includes("network")) {
+      alert("Unable to connect to server!\n\nPlease make sure:\n1. The server is running (npm start)\n2. You're accessing the page at http://localhost:4000/donor_post.html\n3. The server is running on port 4000");
+    } else {
+      alert(`Error: ${errorMsg}\n\nPlease check the browser console for more details.`);
+    }
+  } finally {
+    button.disabled = false;
+    button.innerText = "Send alert";
+  }
+}
+
+function closeModal() {
+  document.getElementById("successModal").classList.add("hidden");
+}
+
+function viewReceiver() {
+  window.location.href = "receiver_view.html";
+}
+</script>
+
+</body>
+</html>
+</html>

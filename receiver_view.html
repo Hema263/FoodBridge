@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Receiver View - FoodBridge</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="lavender-bg">
+
+    <section class="receiver-page">
+        <div class="receiver-header">
+            <div>
+                <p class="login-pill">Receiver board</p>
+                <h2>Live donor alerts</h2>
+                <p class="section-subtitle">Stay synced with lavender popups for every fresh donation.</p>
+            </div>
+            <div class="receiver-meta">
+                <p id="receiverNameLabel">Logged in as –</p>
+                <button class="ghost-btn" onclick="loadPosts()">Refresh feed</button>
+            </div>
+        </div>
+
+        <div id="box" class="card-grid">
+            <div class="no-post">Loading latest posts...</div>
+        </div>
+    </section>
+
+    <div class="toast hidden" id="toast">New donor alert received!</div>
+
+    <div class="modal hidden" id="otpModal">
+        <div class="modal-card">
+            <h3>Confirm pickup with OTP</h3>
+            <p id="modalFoodName"></p>
+            <label class="field-label" for="modalReceiverName">Receiver name</label>
+            <input id="modalReceiverName" type="text" placeholder="Your name">
+            <label class="field-label" for="modalOtpInput">Verification code</label>
+            <input id="modalOtpInput" type="text" maxlength="6" placeholder="Enter 6-digit OTP">
+            <small id="modalOtpHint" class="otp-hint"></small>
+            <div class="modal-actions">
+                <button class="ghost-btn" type="button" onclick="closeModal()">Cancel</button>
+                <button class="post-btn" type="button" onclick="submitOtp()">Verify & accept</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "/api/posts";
+        let postsCache = [];
+        let focusedPostId = null;
+        let latestTimestamp = null;
+
+        const receiverName = sessionStorage.getItem("receiverName") || "Guest receiver";
+        document.getElementById("receiverNameLabel").innerText = `Logged in as ${receiverName}`;
+        document.getElementById("modalReceiverName").value = receiverName;
+
+        async function loadPosts(showToast = false) {
+            try {
+                // Add timestamp to prevent caching and ensure fresh data from server
+                const timestamp = new Date().getTime();
+                const res = await fetch(`${API_URL}?_t=${timestamp}`, {
+                    method: "GET",
+                    headers: {
+                        "Cache-Control": "no-cache",
+                        "Pragma": "no-cache"
+                    }
+                });
+                
+                if (!res.ok) throw new Error("Unable to fetch posts.");
+                const data = await res.json();
+                postsCache = data;
+
+                // Check if there's a new post (compare by ID or timestamp)
+                if (showToast && data.length > 0) {
+                    const newestPost = data[0];
+                    if (latestTimestamp !== newestPost.createdAt) {
+                        // New post detected
+                        if (latestTimestamp !== null) {
+                            triggerToast();
+                        }
+                        latestTimestamp = newestPost.createdAt;
+                    }
+                } else if (!latestTimestamp && data.length) {
+                    latestTimestamp = data[0].createdAt;
+                }
+
+                renderCards(data);
+            } catch (err) {
+                console.error("Error loading posts:", err);
+                document.getElementById("box").innerHTML = `
+                    <div class="no-post">Server offline. Please try again later.</div>
+                `;
+            }
+        }
+
+        function renderCards(posts) {
+            if (!posts.length) {
+                document.getElementById("box").innerHTML = `
+                    <div class="no-post">No food posts available</div>
+                `;
+                return;
+            }
+
+            const html = posts.map((post) => {
+                const status = post.status || "pending";
+                const statusLabel = status === "pending" ? "Awaiting response" : status === "accepted" ? "Accepted" : "Declined";
+                const disabled = status !== "pending";
+                
+                // Support both new format (foods array) and old format (foodName)
+                const foods = post.foods && Array.isArray(post.foods) && post.foods.length > 0 
+                    ? post.foods 
+                    : [{ name: post.foodName || "Food", image: post.imageData || "paneer butter masala.jpg" }];
+                
+                const primaryImage = foods[0].image || post.imageData || "paneer butter masala.jpg";
+                const foodNames = foods.map(f => f.name).join(", ");
+                const foodTitle = foods.length === 1 ? foods[0].name : `${foods.length} foods: ${foodNames}`;
+                
+                // Create images display
+                const allImages = [
+                    ...foods.map(f => f.image).filter(Boolean),
+                    ...(post.additionalImages || [])
+                ];
+                const imagesHtml = allImages.length > 1 
+                    ? `<div class="card-images-grid">
+                        ${allImages.map(img => `<img src="${img}" alt="Food image" class="card-image-thumb">`).join("")}
+                       </div>`
+                    : `<div class="card-image">
+                        <img src="${primaryImage}" alt="${foodTitle}">
+                       </div>`;
+                
+                const receiverLine = post.receiverName ? `<p><strong>Receiver:</strong> ${post.receiverName}</p>` : "";
+                const actionButtons = disabled ? `
+                    <div class="status-message">Status locked - ${statusLabel}</div>
+                ` : `
+                    <div class="action-row">
+                        <button class="post-btn" onclick="openOtpModal('${post.id}')">Accept</button>
+                        <button class="ghost-btn" onclick="declinePost('${post.id}')">Decline</button>
+                    </div>
+                    <p class="otp-tip">Verification code to confirm pickup: <strong>${post.otp}</strong></p>
+                `;
+
+                return `
+                    <div class="card card-${status}">
+                        ${imagesHtml}
+                        <div class="card-body">
+                            <div class="card-head">
+                                <h3>${foodTitle}</h3>
+                                <span class="status-chip status-${status}">${statusLabel}</span>
+                            </div>
+                            ${foods.length > 1 ? `<p><strong>Foods:</strong> ${foodNames}</p>` : ""}
+                            <p><strong>Donor:</strong> ${post.donorName || "Anonymous"}</p>
+                            <p><strong>Quantity:</strong> ${post.qty}</p>
+                            <p><strong>Expires:</strong> ${new Date(post.expire).toLocaleString()}</p>
+                            <p><strong>Location:</strong> ${post.location}</p>
+                            ${receiverLine}
+                            <p><small>Posted on ${new Date(post.createdAt).toLocaleString()}</small></p>
+                            ${actionButtons}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+
+            document.getElementById("box").innerHTML = html;
+        }
+
+        function triggerToast() {
+            const toast = document.getElementById("toast");
+            toast.classList.remove("hidden");
+            setTimeout(() => toast.classList.add("hidden"), 3000);
+        }
+
+        function openOtpModal(postId) {
+            focusedPostId = postId;
+            const post = postsCache.find((item) => item.id === postId);
+            if (!post) return;
+            
+            // Support both new format (foods array) and old format (foodName)
+            const foods = post.foods && Array.isArray(post.foods) && post.foods.length > 0 
+                ? post.foods 
+                : [{ name: post.foodName || "Food" }];
+            const foodNames = foods.map(f => f.name).join(", ");
+            const foodTitle = foods.length === 1 ? foods[0].name : `${foods.length} foods: ${foodNames}`;
+            
+            document.getElementById("modalFoodName").innerText = `Accepting: ${foodTitle}`;
+            document.getElementById("modalOtpHint").innerText = `Enter code ${post.otp} to confirm with the donor.`;
+            document.getElementById("modalOtpInput").value = "";
+            document.getElementById("otpModal").classList.remove("hidden");
+        }
+
+        function closeModal() {
+            focusedPostId = null;
+            document.getElementById("otpModal").classList.add("hidden");
+        }
+
+        async function submitOtp() {
+            if (!focusedPostId) return;
+            const nameField = document.getElementById("modalReceiverName");
+            const otpField = document.getElementById("modalOtpInput");
+            const receiverName = nameField.value.trim();
+            const otpValue = otpField.value.trim();
+
+            if (!receiverName || !otpValue) {
+                alert("Please enter both receiver name and OTP.");
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/${focusedPostId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        status: "accepted",
+                        receiverName,
+                        otpCode: otpValue
+                    })
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    throw new Error(errorData.message || "Unable to accept post.");
+                }
+
+                closeModal();
+                loadPosts();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function declinePost(postId) {
+            const confirmDecline = confirm("Decline this donation? Receivers will no longer see it.");
+            if (!confirmDecline) return;
+
+            try {
+                const res = await fetch(`${API_URL}/${postId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        status: "declined",
+                        receiverName
+                    })
+                });
+
+                if (!res.ok) throw new Error("Unable to decline post.");
+                loadPosts();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        // Load posts immediately on page load
+        loadPosts();
+        
+        // Poll for new posts every 5 seconds (reduced from 8 for faster updates)
+        setInterval(() => loadPosts(true), 5000);
+        
+        // Also reload when window gains focus (user switches back to tab)
+        window.addEventListener("focus", () => {
+            loadPosts(true);
+        });
+    </script>
+
+</body>
+</html>
