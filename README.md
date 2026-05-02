@@ -62,7 +62,7 @@ Confirms pickup using OTP
 Food is successfully shared 🎉
 🔧 Setup Instructions
 **Clone the repository:**
-git clone https://github.com/your-username/FoodBridge.git
+git clone https://github.com/Hema263/FoodBridge.git
 Open the project folder:
 cd FoodBridge
 **Run the project:**
