@@ -121,7 +121,7 @@ Connecting communities
 Real-time food redistribution
 
 
-📈** Future Enhancements**
+**📈Future Enhancements**
 
 📱 Mobile app version
 
